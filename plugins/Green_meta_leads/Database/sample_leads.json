@@ -1,0 +1,32 @@
+[
+  {
+    "id": "lead_mock_0001",
+    "created_time": "2026-06-01T10:00:00+0000",
+    "form_id": "1111111111",
+    "form_name": "Plano de Saude - SP",
+    "campaign_name": "Campanha Junho",
+    "ad_name": "Anuncio A",
+    "field_data": [
+      {"name": "full_name", "values": ["Maria Souza"]},
+      {"name": "phone_number", "values": ["11988887777"]},
+      {"name": "email", "values": ["maria.souza@example.com"]},
+      {"name": "cidade", "values": ["Sao Paulo"]},
+      {"name": "quantas_vidas", "values": ["3"]}
+    ]
+  },
+  {
+    "id": "lead_mock_0002",
+    "created_time": "2026-06-02T14:30:00+0000",
+    "form_id": "1111111111",
+    "form_name": "Plano de Saude - SP",
+    "campaign_name": "Campanha Junho",
+    "ad_name": "Anuncio B",
+    "field_data": [
+      {"name": "nome_completo", "values": ["Joao Lima"]},
+      {"name": "telefone", "values": ["(21) 97777-6666"]},
+      {"name": "email", "values": ["joao.lima@example.com"]},
+      {"name": "cidade", "values": ["Rio de Janeiro"]},
+      {"name": "bairro", "values": ["Copacabana"]}
+    ]
+  }
+]
