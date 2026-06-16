@@ -12,6 +12,10 @@
             <label class="col-md-3">Valida ate</label>
             <div class="col-md-3"><?php echo form_input(["name" => "valid_until", "type" => "date", "value" => $model_info->valid_until ?? "", "class" => "form-control"]); ?></div>
         </div>
+        <div class="form-group row">
+            <label class="col-md-3">Observações</label>
+            <div class="col-md-9"><?php echo form_textarea(["name" => "notes", "value" => $model_info->notes ?? "", "class" => "form-control", "rows" => 2]); ?></div>
+        </div>
         <hr>
         <h5>Opção inicial da cotação</h5>
         <div class="form-group row">
@@ -29,6 +33,10 @@
             <div class="col-md-1"><?php echo form_input(["name" => "lives_qty", "type" => "number", "class" => "form-control"]); ?></div>
         </div>
         <div class="form-group row">
+            <label class="col-md-2">Tipo de produto</label>
+            <div class="col-md-4"><?php echo form_input(["name" => "product_type", "class" => "form-control", "placeholder" => "Ex.: Saúde, Odonto, PME"]); ?></div>
+        </div>
+        <div class="form-group row">
             <label class="col-md-2">Acomodação</label>
             <div class="col-md-4"><?php echo form_input(["name" => "accommodation", "class" => "form-control", "placeholder" => "Ex.: Enfermaria, Apartamento"]); ?></div>
             <label class="col-md-2">Etiqueta</label>
@@ -43,6 +51,10 @@
         <div class="form-group row">
             <label class="col-md-3">Rede/hospitais</label>
             <div class="col-md-9"><?php echo form_textarea(["name" => "network_notes", "class" => "form-control", "rows" => 3]); ?></div>
+        </div>
+        <div class="form-group row">
+            <label class="col-md-3">Hospital de preferência</label>
+            <div class="col-md-9"><?php echo form_textarea(["name" => "preferred_hospital_notes", "class" => "form-control", "rows" => 2, "placeholder" => "Hospitais/rede de preferência do cliente"]); ?></div>
         </div>
         <div class="form-group row">
             <label class="col-md-3">Pontos positivos</label>

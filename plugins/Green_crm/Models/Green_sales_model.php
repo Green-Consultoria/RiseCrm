@@ -19,6 +19,8 @@ class Green_sales_model extends Green_base_model
         $operators = $this->db->prefixTable("green_operators");
         $plans = $this->db->prefixTable("green_plans");
         $checklist = $this->db->prefixTable("green_sale_implantation_checklist");
+        $grades = $this->db->prefixTable("green_commission_grades");
+        $grade_versions = $this->db->prefixTable("green_commission_grade_versions");
         $where = "";
 
         foreach (["id", "lead_id", "client_id", "operator_id", "plan_id", "consultant_id"] as $field) {
@@ -59,6 +61,8 @@ class Green_sales_model extends Green_base_model
                 $leads.lead_code,
                 $operators.name AS operator_name,
                 $plans.name AS plan_registered_name,
+                $grades.name AS commission_grade_name,
+                $grade_versions.version_name AS commission_grade_version_name,
                 COALESCE(checklist_progress.total_items, 9) AS implantation_checklist_total,
                 COALESCE(checklist_progress.completed_items, 0) AS implantation_checklist_completed,
                 COALESCE(checklist_progress.pending_items, 9) AS implantation_checklist_pending
@@ -67,6 +71,8 @@ class Green_sales_model extends Green_base_model
             LEFT JOIN $leads ON $leads.id=$sales.lead_id
             LEFT JOIN $operators ON $operators.id=$sales.operator_id
             LEFT JOIN $plans ON $plans.id=$sales.plan_id
+            LEFT JOIN $grades ON $grades.id=$sales.commission_grade_id
+            LEFT JOIN $grade_versions ON $grade_versions.id=$sales.commission_grade_version_id
             LEFT JOIN (
                 SELECT sale_id,
                     COUNT(*) AS total_items,

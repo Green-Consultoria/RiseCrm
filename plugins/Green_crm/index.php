@@ -64,6 +64,8 @@ app_hooks()->add_filter('app_filter_role_permissions_save_data', function ($perm
         "green_crm_manage_leads",
         "green_crm_manage_sales",
         "green_crm_manage_commissions",
+        "green_crm_manage_commission_grades",
+        "green_crm_recalculate_commissions",
         "green_crm_manage_settings",
         "green_crm_view_passwords",
         "green_crm_manage_passwords",
@@ -130,7 +132,8 @@ if (!function_exists("green_crm_install_or_update")) {
             ["name" => "Tarefas e lembretes", "url" => get_uri("green_crm/tasks"), "class" => "check-square", "match" => "green_crm/task"],
             ["name" => "Cotações", "url" => get_uri("green_crm/quotes"), "class" => "file-text", "match" => "green_crm/quote"],
             ["name" => "Vendas", "url" => get_uri("green_crm/sales"), "class" => "shopping-cart", "match" => "green_crm/sale"],
-            ["name" => "Comissões", "url" => get_uri("green_crm/commissions"), "class" => "dollar-sign", "match" => "green_crm/commission"],
+            ["name" => "Comissões", "url" => get_uri("green_crm/commissions"), "class" => "dollar-sign", "match" => "green_crm/commissions"],
+            ["name" => "Grades de comissão", "url" => get_uri("green_crm/commission_grades"), "class" => "sliders", "match" => "green_crm/commission_grade"],
             ["name" => "Gerenciador de anúncios", "url" => get_uri("green_crm/ad_campaigns"), "class" => "trello", "match" => "green_crm/ad_"],
             ["name" => "Reajustes", "url" => get_uri("green_crm/renewals"), "class" => "refresh-cw", "match" => "green_crm/renewal"],
             ["name" => "Dados Pendentes", "url" => get_uri("green_crm/data_quality"), "class" => "alert-triangle", "match" => "green_crm/data_quality"],
@@ -141,34 +144,22 @@ if (!function_exists("green_crm_install_or_update")) {
 
     function green_crm_left_menu_native_items()
     {
-        $uri = function_exists("uri_string") ? (string) uri_string() : "";
-        $is_green_active = strpos($uri, "green_crm") === 0 || strpos($uri, "green_meta_leads") === 0;
-
-        $submenu = [];
+        // Cada pagina da Green e um MENU DE TOPO independente (sem item-pai "Green CRM").
+        // Posicoes sequenciais mantem as paginas agrupadas perto do topo da barra.
+        $items = [];
+        $position = 4;
         foreach (green_crm_left_menu_submenu_items() as $item) {
-            $sub = [
+            $items[$item["name"]] = [
                 "name" => $item["name"],
                 "url" => $item["url"],
                 "is_custom_menu_item" => true,
-                "class" => $item["class"]
+                "class" => $item["class"],
+                "position" => $position
             ];
-            $submenu[] = $sub;
+            $position++;
         }
 
-        $parent = [
-            "name" => "Green CRM",
-            "url" => get_uri("green_crm"),
-            "is_custom_menu_item" => true,
-            "class" => "activity",
-            "position" => 4,
-            "submenu" => $submenu
-        ];
-
-        if ($is_green_active) {
-            $parent["is_active_menu"] = 1;
-        }
-
-        return ["green_crm" => $parent];
+        return $items;
     }
 
     function green_crm_sync_left_menu_settings($db, $dbprefix)
@@ -178,16 +169,31 @@ if (!function_exists("green_crm_install_or_update")) {
             return;
         }
 
-        $native_items = [];
-        $native_names = [];
-        $legacy_submenu_names = ["Dashboard", "Leads", "Funil", "Vendas", "Cotações", "Cotacoes", "Reajustes", "Dados Pendentes", "Comissoes"];
-        foreach (green_crm_left_menu_sections() as $key => $item) {
-            $native_name = green_crm_left_menu_native_name($key, $item);
-            $native_items[] = ["name" => $native_name];
-            $native_names[] = $native_name;
-        }
+        $parent_name = "Green CRM";
+        $legacy_root_names = ["Green_crm"];
 
-        $legacy_root_names = ["Green CRM", "Green_crm"];
+        // Nomes canonicos das paginas Green (mesma fonte do submenu nativo).
+        $green_sub_names = [];
+        foreach (green_crm_left_menu_submenu_items() as $item) {
+            $green_sub_names[] = $item["name"];
+        }
+        // Sub injetada por plugin irmao (Green_meta_leads) que tambem deve ficar no grupo.
+        $extra_green_subs = ["Leads Meta Ads"];
+
+        $is_green_item = function ($name) use ($parent_name, $legacy_root_names, $green_sub_names, $extra_green_subs) {
+            if ($name === "") {
+                return false;
+            }
+            if ($name === $parent_name || in_array($name, $legacy_root_names, true)) {
+                return true;
+            }
+            if (in_array($name, $green_sub_names, true) || in_array($name, $extra_green_subs, true)) {
+                return true;
+            }
+            // Legados "Green ..." (ex.: "Green Cotacoes").
+            return strpos($name, "Green ") === 0;
+        };
+
         $rows = $db->query("SELECT setting_name, setting_value FROM `" . $settings_table . "`
             WHERE deleted=0 AND (setting_name='default_left_menu' OR setting_name LIKE 'user\\_%\\_left_menu')")->getResult();
 
@@ -197,32 +203,50 @@ if (!function_exists("green_crm_install_or_update")) {
                 continue;
             }
 
-            $changed = false;
-            $inserted_native_items = false;
+            // 1) Retira todo item Green (pai, paginas e legados) das posicoes atuais
+            //    para que nao fiquem pendurados como submenu de outro menu (ex.: Projetos).
             $rebuilt = [];
+            $had_meta_ads = false;
             foreach ($items as $item) {
-                $name = $item["name"] ?? "";
-
-                if ($name !== "Green CRM" && strpos($name, "Green ") === 0) {
-                    $changed = true;
+                $name = is_array($item) ? ($item["name"] ?? "") : "";
+                if ($is_green_item($name)) {
+                    if (in_array($name, $extra_green_subs, true)) {
+                        $had_meta_ads = true;
+                    }
                     continue;
                 }
-
-                if (!empty($item["is_sub_menu"]) && $name !== "Green CRM" && strpos($name, "Green ") === 0) {
-                    $changed = true;
-                    continue;
-                }
-
-                if (in_array($name, $legacy_root_names, true)) {
-                    $changed = true;
-                    continue;
-                }
-
                 $rebuilt[] = $item;
             }
 
-            if ($changed) {
-                $db->query("UPDATE `" . $settings_table . "` SET setting_value=" . $db->escape(serialize($rebuilt)) . "
+            // 2) Monta o bloco Green: cada pagina vira um MENU DE TOPO independente
+            //    (sem is_sub_menu e sem item-pai), para nao ficar sob nenhum outro menu.
+            $block = [];
+            foreach ($green_sub_names as $sub_name) {
+                $block[] = ["name" => $sub_name];
+                if ($sub_name === "Leads" && $had_meta_ads) {
+                    $block[] = ["name" => "Leads Meta Ads"];
+                }
+            }
+
+            // 3) Insere o bloco logo apos "projects" (ou no topo, se nao existir).
+            $insert_pos = 0;
+            foreach ($rebuilt as $idx => $it) {
+                if ((is_array($it) ? ($it["name"] ?? "") : "") === "projects") {
+                    $insert_pos = $idx + 1;
+                    break;
+                }
+            }
+
+            $new_items = array_merge(
+                array_slice($rebuilt, 0, $insert_pos),
+                $block,
+                array_slice($rebuilt, $insert_pos)
+            );
+
+            // 4) Grava apenas quando muda (evita escrita a cada carregamento de pagina).
+            $new_value = serialize($new_items);
+            if ($new_value !== $row->setting_value) {
+                $db->query("UPDATE `" . $settings_table . "` SET setting_value=" . $db->escape($new_value) . "
                     WHERE setting_name=" . $db->escape($row->setting_name));
             }
         }
@@ -257,8 +281,165 @@ if (!function_exists("green_crm_install_or_update")) {
             green_crm_sync_left_menu_settings($db, $db->getPrefix());
             green_crm_run_sql_file($db, __DIR__ . "/Database/install.sql");
             green_crm_run_sql_file($db, __DIR__ . "/Database/seeds.sql");
+            green_crm_seed_commission_grades($db);
         } catch (\Exception $e) {
             log_message("error", "Erro ao instalar/atualizar Green CRM: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Gera a distribuicao de parcelas a partir de um multiplicador total.
+     * Mesma logica do gerador "padrao por multiplicador" da tela de comissoes:
+     * primeiras 2 parcelas ate 1.0, restante em blocos de 0.5.
+     */
+    function green_crm_distribute_multiplier($total)
+    {
+        $remaining = max(0, round((float) $total, 4));
+        $rates = [];
+        while ($remaining > 0.0001 && count($rates) < 2) {
+            $chunk = min(1, $remaining);
+            $rates[] = round($chunk, 4);
+            $remaining = round($remaining - $chunk, 4);
+        }
+        while ($remaining > 0.0001) {
+            $chunk = $remaining > 0.5 ? 0.5 : $remaining;
+            $rates[] = round($chunk, 4);
+            $remaining = round($remaining - $chunk, 4);
+        }
+
+        $installments = [];
+        foreach ($rates as $index => $rate) {
+            $installments[] = [
+                "installment_no" => $index + 1,
+                "installment_label" => ($index + 1) . "ª",
+                "commission_rate" => $rate,
+                "due_offset_months" => $index
+            ];
+        }
+        return $installments;
+    }
+
+    /**
+     * Seed idempotente das grades Ramed/Serra. Nunca sobrescreve linhas ja existentes
+     * (identifica por nome da grade + versao + operadora + produto).
+     */
+    function green_crm_seed_commission_grades($db)
+    {
+        $grades_table = $db->prefixTable("green_commission_grades");
+        $versions_table = $db->prefixTable("green_commission_grade_versions");
+        $rules_table = $db->prefixTable("green_commission_rules");
+        $rule_inst_table = $db->prefixTable("green_commission_rule_installments");
+        $operators_table = $db->prefixTable("green_operators");
+
+        if (!$db->tableExists($grades_table) || !$db->tableExists($rules_table)) {
+            return;
+        }
+
+        helper("green");
+        $seed_file = __DIR__ . "/Database/seed_commission_grades.php";
+        if (!is_file($seed_file)) {
+            return;
+        }
+        $seed = require $seed_file;
+        $now = date("Y-m-d H:i:s");
+
+        foreach ($seed as $entry) {
+            $grade_name = $entry["grade"]["name"];
+
+            $grade_row = $db->query("SELECT id FROM $grades_table WHERE name=" . $db->escape($grade_name) . " AND deleted=0 LIMIT 1")->getRow();
+            if ($grade_row) {
+                $grade_id = (int) $grade_row->id;
+            } else {
+                $db->table($grades_table)->insert([
+                    "name" => $grade_name,
+                    "partner_name" => $entry["grade"]["partner_name"],
+                    "description" => $entry["grade"]["description"],
+                    "status" => "Ativa",
+                    "created_at" => $now,
+                    "updated_at" => $now,
+                    "deleted" => 0
+                ]);
+                $grade_id = (int) $db->insertID();
+            }
+
+            $version_name = $entry["version"]["version_name"];
+            $version_row = $db->query("SELECT id FROM $versions_table WHERE grade_id=$grade_id AND version_name=" . $db->escape($version_name) . " AND deleted=0 LIMIT 1")->getRow();
+            if ($version_row) {
+                $version_id = (int) $version_row->id;
+            } else {
+                $db->table($versions_table)->insert([
+                    "grade_id" => $grade_id,
+                    "version_name" => $version_name,
+                    "valid_from" => $entry["version"]["valid_from"],
+                    "valid_until" => $entry["version"]["valid_until"],
+                    "status" => "Ativa",
+                    "notes" => $entry["version"]["notes"],
+                    "source_file_name" => $entry["version"]["source_file_name"],
+                    "created_at" => $now,
+                    "updated_at" => $now,
+                    "deleted" => 0
+                ]);
+                $version_id = (int) $db->insertID();
+            }
+
+            foreach ($entry["rules"] as $rule) {
+                $operator_name = trim((string) ($rule["operator"] ?? ""));
+                $operator_id = null;
+                $operator_name_text = null;
+                if ($operator_name !== "") {
+                    $normalized = green_ascii_key(green_normalize_operator($operator_name));
+                    $op_row = $db->query("SELECT id FROM $operators_table WHERE normalized_name=" . $db->escape($normalized) . " AND deleted=0 LIMIT 1")->getRow();
+                    if ($op_row) {
+                        $operator_id = (int) $op_row->id;
+                    } else {
+                        $operator_name_text = $operator_name;
+                    }
+                }
+
+                $product_name = $rule["product_name"];
+                $exists_sql = "SELECT id FROM $rules_table WHERE grade_version_id=$version_id AND deleted=0 AND product_name=" . $db->escape($product_name);
+                if ($operator_id) {
+                    $exists_sql .= " AND operator_id=$operator_id";
+                } elseif ($operator_name_text !== null) {
+                    $exists_sql .= " AND operator_name_text=" . $db->escape($operator_name_text);
+                } else {
+                    $exists_sql .= " AND operator_id IS NULL AND operator_name_text IS NULL";
+                }
+                if ($db->query($exists_sql . " LIMIT 1")->getRow()) {
+                    continue;
+                }
+
+                $total = (float) $rule["total"];
+                $db->table($rules_table)->insert([
+                    "grade_id" => $grade_id,
+                    "grade_version_id" => $version_id,
+                    "operator_id" => $operator_id,
+                    "operator_name_text" => $operator_name_text,
+                    "product_name" => $product_name,
+                    "product_type" => $rule["product_type"] ?? null,
+                    "lives_range_text" => $rule["lives_range_text"] ?? null,
+                    "total_multiplier" => $total,
+                    "notes" => "revisar",
+                    "status" => "Ativo",
+                    "created_at" => $now,
+                    "updated_at" => $now,
+                    "deleted" => 0
+                ]);
+                $rule_id = (int) $db->insertID();
+
+                foreach (green_crm_distribute_multiplier($total) as $inst) {
+                    $db->table($rule_inst_table)->insert([
+                        "rule_id" => $rule_id,
+                        "installment_no" => $inst["installment_no"],
+                        "installment_label" => $inst["installment_label"],
+                        "commission_rate" => $inst["commission_rate"],
+                        "due_offset_months" => $inst["due_offset_months"],
+                        "created_at" => $now,
+                        "updated_at" => $now,
+                        "deleted" => 0
+                    ]);
+                }
+            }
         }
     }
 }

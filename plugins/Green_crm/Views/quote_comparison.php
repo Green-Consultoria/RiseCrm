@@ -63,6 +63,10 @@ $status_badge = function ($status) {
                     <div class="col-md-2"><strong>Válida até</strong><br><?php echo $date($quote->valid_until); ?></div>
                     <div class="col-md-3"><strong>Valor pago atual</strong><br><?php echo $money($quote->current_paid_value); ?></div>
                 </div>
+                <div class="row mt10">
+                    <div class="col-md-5"><strong>Plano atual do cliente</strong><br><?php echo $text(($lead->operator_name ?? "") . " " . ($quote->current_plan_name ?? "")); ?></div>
+                    <div class="col-md-7"><strong>Observações da cotação</strong><br><?php echo $quote->notes ? nl2br(esc($quote->notes)) : "-"; ?></div>
+                </div>
             </div>
 
             <div class="p20 green-crm-content-panel">
@@ -92,8 +96,9 @@ $status_badge = function ($status) {
                                 </div>
 
                                 <div class="green-option-row"><span>Valor mensal</span><strong><?php echo $money($option->monthly_value); ?></strong></div>
-                                <div class="green-option-row"><span>Economia</span><strong><?php echo $money($option->economy_amount); ?></strong></div>
-                                <div class="green-option-row"><span>% economia</span><strong><?php echo $percent($option->economy_percent); ?></strong></div>
+                                <div class="green-option-row"><span>Diferença (R$)</span><strong><?php echo $money($option->economy_amount); ?></strong></div>
+                                <div class="green-option-row"><span>Diferença (%)</span><strong><?php echo $percent($option->economy_percent); ?></strong></div>
+                                <div class="green-option-row"><span>Tipo de produto</span><strong><?php echo $text($option->product_type); ?></strong></div>
                                 <div class="green-option-row"><span>Coparticipação</span><strong><?php echo (int) $option->coparticipation ? "Sim" : "Não"; ?></strong></div>
                                 <div class="green-option-row"><span>Acomodação</span><strong><?php echo $text($accommodation); ?></strong></div>
                                 <div class="green-option-row"><span>Hospital preferido</span><strong><?php echo (int) $option->hospital_match ? "Atende" : "Não informado"; ?></strong></div>
@@ -102,6 +107,12 @@ $status_badge = function ($status) {
                                     <strong>Rede/hospitais</strong>
                                     <div><?php echo nl2br(esc($option->network_notes ?: "-")); ?></div>
                                 </div>
+                                <?php if (!empty($option->preferred_hospital_notes)): ?>
+                                <div class="mt10">
+                                    <strong>Hospital de preferência</strong>
+                                    <div><?php echo nl2br(esc($option->preferred_hospital_notes)); ?></div>
+                                </div>
+                                <?php endif; ?>
                                 <div class="mt10">
                                     <strong>Pontos positivos</strong>
                                     <div><?php echo nl2br(esc($option->pros ?: "-")); ?></div>

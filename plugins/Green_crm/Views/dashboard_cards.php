@@ -23,6 +23,8 @@ $cards = [
     ["label" => "Comissao prevista", "value" => $money($dashboard["commission_expected"] ?? 0), "icon" => "dollar-sign", "class" => "bg-primary"],
     ["label" => "Comissao recebida", "value" => $money($dashboard["commission_received"] ?? 0), "icon" => "check-square", "class" => "bg-success"],
     ["label" => "Comissao em aberto", "value" => $money($dashboard["commission_open"] ?? 0), "icon" => "clock", "class" => "bg-warning"],
+    ["label" => "Comissao vencida", "value" => $money($dashboard["commission_overdue"] ?? 0), "icon" => "alert-triangle", "class" => "bg-danger"],
+    ["label" => "Diferença previsto x recebido", "value" => $money($dashboard["commission_difference"] ?? 0), "icon" => "activity", "class" => "bg-info"],
     ["label" => "Implantações pendentes", "value" => (int) ($dashboard["pending_implantations"] ?? 0), "icon" => "alert-circle", "class" => "bg-warning"],
     ["label" => "Reajustes próximos", "value" => (int) ($dashboard["upcoming_renewals"] ?? 0), "icon" => "refresh-cw", "class" => "bg-info"],
     ["label" => "Tarefas atrasadas", "value" => (int) ($dashboard["overdue_tasks"] ?? 0), "icon" => "alert-triangle", "class" => "bg-danger"]

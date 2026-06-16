@@ -452,10 +452,13 @@ ALTER TABLE `{dbprefix}green_tasks`
 ALTER TABLE `{dbprefix}green_tasks` MODIFY `lead_id` int(11) DEFAULT NULL;
 
 -- Migracao do vocabulario de status (Pendente/Concluida/Cancelada -> aberta/em_andamento/concluida/cancelada)
-ALTER TABLE `{dbprefix}green_tasks` MODIFY `status` enum('Pendente','Concluida','Cancelada','aberta','em_andamento','concluida','cancelada') NOT NULL DEFAULT 'aberta';
+ALTER TABLE `{dbprefix}green_tasks` MODIFY `status` enum('Pendente','Concluida','Cancelada','aberta','em_andamento','concluida_legacy','cancelada_legacy') NOT NULL DEFAULT 'aberta';
 UPDATE `{dbprefix}green_tasks` SET `status`='aberta' WHERE `status`='Pendente';
-UPDATE `{dbprefix}green_tasks` SET `status`='concluida' WHERE `status`='Concluida';
-UPDATE `{dbprefix}green_tasks` SET `status`='cancelada' WHERE `status`='Cancelada';
+UPDATE `{dbprefix}green_tasks` SET `status`='concluida_legacy' WHERE `status`='Concluida';
+UPDATE `{dbprefix}green_tasks` SET `status`='cancelada_legacy' WHERE `status`='Cancelada';
+ALTER TABLE `{dbprefix}green_tasks` MODIFY `status` enum('Pendente','aberta','em_andamento','concluida_legacy','concluida','cancelada_legacy','cancelada') NOT NULL DEFAULT 'aberta';
+UPDATE `{dbprefix}green_tasks` SET `status`='concluida' WHERE `status`='concluida_legacy';
+UPDATE `{dbprefix}green_tasks` SET `status`='cancelada' WHERE `status`='cancelada_legacy';
 ALTER TABLE `{dbprefix}green_tasks` MODIFY `status` enum('aberta','em_andamento','concluida','cancelada') NOT NULL DEFAULT 'aberta';
 
 -- Banco de senhas (criptografado com o Encryption Service do Rise)
@@ -567,4 +570,126 @@ CREATE TABLE IF NOT EXISTS `{dbprefix}green_ads` (
   KEY `idx_green_ad_adset` (`adset_id`),
   KEY `idx_green_ad_campaign` (`campaign_id`),
   KEY `idx_green_ad_deleted` (`deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================================
+-- Green CRM Fase 2: nucleo comercial/financeiro
+--  - colunas de vinculo em cotacoes/opcoes/vendas/parcelas
+--  - grades de comissao com versionamento (4 tabelas novas)
+-- =====================================================================
+
+-- Cotacoes: cliente vinculado + observacoes (spec Modulo 1)
+ALTER TABLE `{dbprefix}green_quotes`
+  ADD COLUMN IF NOT EXISTS `client_id` int(11) DEFAULT NULL AFTER `lead_id`,
+  ADD COLUMN IF NOT EXISTS `notes` text DEFAULT NULL AFTER `selected_option_id`,
+  ADD INDEX IF NOT EXISTS `idx_green_quotes_client` (`client_id`);
+
+-- Opcoes de cotacao: tipo de produto + rede/hospital de preferencia (spec Modulo 3)
+ALTER TABLE `{dbprefix}green_quote_options`
+  ADD COLUMN IF NOT EXISTS `product_type` varchar(80) DEFAULT NULL AFTER `plan_name`,
+  ADD COLUMN IF NOT EXISTS `preferred_hospital_notes` text DEFAULT NULL AFTER `network_notes`;
+
+-- Vendas: vinculo com cotacao/opcao e congelamento da grade/versao (spec Modulos 4, 6, 11)
+ALTER TABLE `{dbprefix}green_sales`
+  ADD COLUMN IF NOT EXISTS `quote_id` int(11) DEFAULT NULL AFTER `lead_id`,
+  ADD COLUMN IF NOT EXISTS `quote_option_id` int(11) DEFAULT NULL AFTER `quote_id`,
+  ADD COLUMN IF NOT EXISTS `commission_grade_id` int(11) DEFAULT NULL AFTER `total_commission_multiplier`,
+  ADD COLUMN IF NOT EXISTS `commission_grade_version_id` int(11) DEFAULT NULL AFTER `commission_grade_id`,
+  ADD COLUMN IF NOT EXISTS `commission_status` varchar(40) DEFAULT NULL AFTER `commission_grade_version_id`,
+  ADD INDEX IF NOT EXISTS `idx_green_sales_quote` (`quote_id`),
+  ADD INDEX IF NOT EXISTS `idx_green_sales_commission_grade` (`commission_grade_id`),
+  ADD INDEX IF NOT EXISTS `idx_green_sales_commission_grade_version` (`commission_grade_version_id`);
+
+-- Parcelas de comissao: vinculo com a regra de origem + label + status Divergente (spec Modulos 7, 8)
+ALTER TABLE `{dbprefix}green_commission_installments`
+  ADD COLUMN IF NOT EXISTS `commission_rule_id` int(11) DEFAULT NULL AFTER `sale_id`,
+  ADD COLUMN IF NOT EXISTS `installment_label` varchar(120) DEFAULT NULL AFTER `installment_no`,
+  ADD INDEX IF NOT EXISTS `idx_green_commission_rule` (`commission_rule_id`);
+
+ALTER TABLE `{dbprefix}green_commission_installments`
+  MODIFY `status` enum('Previsto','A receber','Recebido','Parcial','Cancelado','Estornado','Divergente') NOT NULL DEFAULT 'Previsto';
+
+-- Grade de comissao (parceiro/tabela). Ex.: Ramed, Serra, Tabela A...
+CREATE TABLE IF NOT EXISTS `{dbprefix}green_commission_grades` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(150) NOT NULL,
+  `partner_name` varchar(150) DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `status` enum('Ativa','Inativa') NOT NULL DEFAULT 'Ativa',
+  `created_by` int(11) DEFAULT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_green_grade_name` (`name`),
+  KEY `idx_green_grade_status` (`status`),
+  KEY `idx_green_grade_deleted` (`deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Versoes de uma grade (vigencia). Venda congela a versao usada.
+CREATE TABLE IF NOT EXISTS `{dbprefix}green_commission_grade_versions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `grade_id` int(11) NOT NULL,
+  `version_name` varchar(150) NOT NULL,
+  `valid_from` date DEFAULT NULL,
+  `valid_until` date DEFAULT NULL,
+  `status` enum('Ativa','Inativa') NOT NULL DEFAULT 'Ativa',
+  `notes` text DEFAULT NULL,
+  `source_file_name` varchar(255) DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_green_grade_version_grade` (`grade_id`),
+  KEY `idx_green_grade_version_valid_from` (`valid_from`),
+  KEY `idx_green_grade_version_status` (`status`),
+  KEY `idx_green_grade_version_deleted` (`deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Regras de comissao por operadora/produto dentro de uma versao da grade.
+CREATE TABLE IF NOT EXISTS `{dbprefix}green_commission_rules` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `grade_id` int(11) NOT NULL,
+  `grade_version_id` int(11) NOT NULL,
+  `operator_id` int(11) DEFAULT NULL,
+  `operator_name_text` varchar(150) DEFAULT NULL,
+  `plan_id` int(11) DEFAULT NULL,
+  `product_name` varchar(200) DEFAULT NULL,
+  `product_type` varchar(80) DEFAULT NULL,
+  `lives_range_text` varchar(120) DEFAULT NULL,
+  `total_multiplier` decimal(10,4) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `status` enum('Ativo','Inativo') NOT NULL DEFAULT 'Ativo',
+  `created_by` int(11) DEFAULT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_green_rule_grade` (`grade_id`),
+  KEY `idx_green_rule_version` (`grade_version_id`),
+  KEY `idx_green_rule_operator` (`operator_id`),
+  KEY `idx_green_rule_product_type` (`product_type`),
+  KEY `idx_green_rule_status` (`status`),
+  KEY `idx_green_rule_deleted` (`deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Distribuicao das parcelas (template) de uma regra. Flexivel: 1a, 2a... 13a, 24a, 25a.
+CREATE TABLE IF NOT EXISTS `{dbprefix}green_commission_rule_installments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `rule_id` int(11) NOT NULL,
+  `installment_no` int(11) NOT NULL DEFAULT 1,
+  `installment_label` varchar(120) DEFAULT NULL,
+  `commission_rate` decimal(10,4) DEFAULT NULL,
+  `due_offset_months` int(11) NOT NULL DEFAULT 0,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_green_rule_inst_rule` (`rule_id`),
+  KEY `idx_green_rule_inst_deleted` (`deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

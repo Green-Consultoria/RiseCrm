@@ -76,6 +76,20 @@ $(document).ready(function () {
         }
     });
 
+    $("body").on("click", ".green-recalculate-commission", function () {
+        if (!confirm("Recalcular as comissões desta venda? Parcelas já recebidas serão preservadas; previstas/a-receber serão regeradas pela versão da grade.")) { return; }
+        appAjaxRequest({
+            url: "<?php echo_uri("green_crm/recalculate_commission"); ?>",
+            type: "POST",
+            dataType: "json",
+            data: {id: $(this).data("id")},
+            success: function (result) {
+                result.success ? appAlert.success(result.message) : appAlert.error(result.message);
+                reloadSalesTable();
+            }
+        });
+    });
+
     $("body").on("click", ".green-cancel-sale", function () {
         var id = $(this).data("id");
         $(this).appConfirmation({

@@ -130,7 +130,7 @@ $(document).ready(function(){
         filterDropdown: [
             {name:"due_month", class:"w220", options:[{id:"", text:"Competência"}, {id:"1", text:"Janeiro"}, {id:"2", text:"Fevereiro"}, {id:"3", text:"Março"}, {id:"4", text:"Abril"}, {id:"5", text:"Maio"}, {id:"6", text:"Junho"}, {id:"7", text:"Julho"}, {id:"8", text:"Agosto"}, {id:"9", text:"Setembro"}, {id:"10", text:"Outubro"}, {id:"11", text:"Novembro"}, {id:"12", text:"Dezembro"}]},
             {name:"due_year", class:"w160", options:<?php $years = [["id" => "", "text" => "Ano"]]; for ($year = (int) date("Y") - 2; $year <= (int) date("Y") + 3; $year++) { $years[] = ["id" => (string) $year, "text" => (string) $year]; } echo json_encode($years); ?>},
-            {name:"status", class:"w220", options:[{id:"", text:"Status"}, {id:"Previsto", text:"Previsto"}, {id:"A receber", text:"A receber"}, {id:"Recebido", text:"Recebido"}, {id:"Parcial", text:"Parcial"}, {id:"Cancelado", text:"Cancelado"}, {id:"Estornado", text:"Estornado"}]},
+            {name:"status", class:"w220", options:[{id:"", text:"Status"}, {id:"Previsto", text:"Previsto"}, {id:"A receber", text:"A receber"}, {id:"Recebido", text:"Recebido"}, {id:"Parcial", text:"Parcial"}, {id:"Divergente", text:"Divergente"}, {id:"Cancelado", text:"Cancelado"}, {id:"Estornado", text:"Estornado"}]},
             {name:"commission_type", class:"w220", options:[{id:"", text:"Tipo"}, {id:"comissao", text:"Comissão"}, {id:"bonus", text:"Bônus"}, {id:"ajuste", text:"Ajuste"}, {id:"estorno", text:"Estorno"}]},
             {name:"operator_id", class:"w240", options:<?php echo json_encode($operator_options); ?>},
             {name:"consultant_id", class:"w240", options:<?php echo json_encode($consultant_options); ?>}
@@ -173,7 +173,14 @@ $(document).ready(function(){
     }, 300));
 
     $("body").on("click", ".green-cancel-commission", function(){
+        if (!confirm("Cancelar esta parcela de comissão?")) { return; }
         appAjaxRequest({url:"<?php echo_uri("green_crm/cancel_commission"); ?>", type:"POST", dataType:"json", data:{id:$(this).data("id")}, success:function(r){r.success?appAlert.success(r.message):appAlert.error(r.message); reloadCommissionsTable();}});
+    });
+
+    $("body").on("click", ".green-reverse-commission", function(){
+        var notes = prompt("Justificativa do estorno (obrigatória):");
+        if (notes === null || notes.trim() === "") { return; }
+        appAjaxRequest({url:"<?php echo_uri("green_crm/mark_as_reversed"); ?>", type:"POST", dataType:"json", data:{id:$(this).data("id"), notes:notes}, success:function(r){r.success?appAlert.success(r.message):appAlert.error(r.message); reloadCommissionsTable();}});
     });
     if (window.feather) {
         feather.replace();

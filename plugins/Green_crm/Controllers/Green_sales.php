@@ -15,12 +15,16 @@ class Green_sales extends Security_Controller
     public $Green_lead_statuses_model;
     public $Green_interactions_model;
     public $Green_sale_implantation_checklist_model;
+    public $Green_commission_grades_model;
+    public $Green_commission_grade_versions_model;
+    public $Green_commission_installments_model;
     public $Users_model;
 
     public function __construct()
     {
         parent::__construct();
         $this->access_only_team_members();
+        helper("green");
 
         if (function_exists("green_crm_install_or_update")) {
             green_crm_install_or_update();
@@ -35,6 +39,9 @@ class Green_sales extends Security_Controller
         $this->Green_lead_statuses_model = model("Green_crm\Models\Green_lead_statuses_model");
         $this->Green_interactions_model = model("Green_crm\Models\Green_interactions_model");
         $this->Green_sale_implantation_checklist_model = model("Green_crm\Models\Green_sale_implantation_checklist_model");
+        $this->Green_commission_grades_model = model("Green_crm\Models\Green_commission_grades_model");
+        $this->Green_commission_grade_versions_model = model("Green_crm\Models\Green_commission_grade_versions_model");
+        $this->Green_commission_installments_model = model("Green_crm\Models\Green_commission_installments_model");
         $this->Users_model = model("App\Models\Users_model");
     }
 
@@ -212,14 +219,20 @@ class Green_sales extends Security_Controller
         $notes = trim((string) $this->request->getPost("notes"));
         $notes = $this->_notes_with_manual_commission_fields($notes);
 
+        $commission_grade_id = (int) $this->request->getPost("commission_grade_id");
+        $old_sale = $id ? $this->Green_sales_model->get_details(["id" => $id])->getRow() : null;
+
         $sale_data = [
             "lead_id" => (int) $this->request->getPost("lead_id") ?: null,
+            "quote_id" => (int) $this->request->getPost("quote_id") ?: null,
+            "quote_option_id" => (int) $this->request->getPost("quote_option_id") ?: null,
             "client_id" => $client_id,
             "operator_id" => (int) $this->request->getPost("operator_id"),
             "plan_id" => $plan_id ?: null,
             "plan_name" => $plan_name ?: null,
             "sale_date" => $sale_date,
             "sale_value" => $sale_value,
+            "commission_grade_id" => $commission_grade_id ?: null,
             "implantation_date" => $implantation_date,
             "fidelity_until" => $fidelity_until,
             "contract_number" => trim((string) $this->request->getPost("contract_number")) ?: null,
@@ -247,6 +260,23 @@ class Green_sales extends Security_Controller
             $this->Green_sale_implantation_checklist_model->ensure_default_items($save_id, $user_id);
         }
 
+        green_log_changes("sale", $save_id, $old_sale, $sale_data, $user_id, $id ? "sale_updated" : "sale_created");
+
+        // Geracao automatica das parcelas previstas a partir da grade selecionada.
+        // So gera na criacao ou quando a grade mudou (venda existente nao muda sozinha).
+        $message = "Venda salva com sucesso.";
+        $old_grade_id = (int) ($old_sale->commission_grade_id ?? 0);
+        if ($commission_grade_id && (!$id || $old_grade_id !== $commission_grade_id)) {
+            $result = green_generate_commission_for_sale($save_id, $commission_grade_id, $user_id);
+            if ($result["status"] === "ok") {
+                $message = "Venda salva. " . $result["count"] . " parcela(s) de comissão gerada(s) (multiplicador " . rtrim(rtrim(number_format((float) $result["multiplier"], 4, ",", "."), "0"), ",") . ").";
+            } elseif ($result["status"] === "no_version") {
+                $message = "Venda salva, mas nenhuma versão da grade vigente na data da venda. Configure a comissão manualmente.";
+            } else {
+                $message = "Venda salva, mas nenhuma regra de comissão encontrada para esta venda. Configure manualmente.";
+            }
+        }
+
         $lead_id = (int) ($sale_data["lead_id"] ?? 0);
         if ($lead_id) {
             $this->_mark_lead_as_sold($lead_id, $user_id);
@@ -261,7 +291,7 @@ class Green_sales extends Security_Controller
             }
         }
 
-        echo json_encode(["success" => true, "id" => $save_id, "message" => "Venda salva com sucesso."]);
+        echo json_encode(["success" => true, "id" => $save_id, "message" => $message]);
     }
 
     public function sale_implantation_checklist($sale_id)
@@ -318,6 +348,92 @@ class Green_sales extends Security_Controller
         echo json_encode(["success" => true, "message" => "Venda cancelada com sucesso."]);
     }
 
+    public function commission_preview()
+    {
+        $grade_id = (int) $this->request->getPost("commission_grade_id");
+        if (!$grade_id) {
+            echo json_encode(["success" => true, "status" => "no_grade", "message" => "Selecione uma grade para ver a previsão.", "rows" => []]);
+            return;
+        }
+
+        $sale_value = $this->money_to_float($this->request->getPost("sale_value")) ?: 0;
+        $sale_date = $this->date_value($this->request->getPost("sale_date")) ?: date("Y-m-d");
+        $operator_id = (int) $this->request->getPost("operator_id");
+        $plan_id = (int) $this->request->getPost("plan_id");
+
+        $operator_name = null;
+        if ($operator_id) {
+            $operator = $this->Green_operators_model->get_one($operator_id);
+            $operator_name = $operator->name ?? null;
+        }
+        $product_type = null;
+        if ($plan_id) {
+            $plan = $this->Green_plans_model->get_one($plan_id);
+            $product_type = $plan->product_type ?? null;
+        }
+
+        $resolved = green_commission_resolve($grade_id, $sale_value, $sale_date, $operator_id, $operator_name, $product_type, $plan_id);
+
+        if ($resolved["status"] === "no_version") {
+            echo json_encode(["success" => true, "status" => "no_version", "message" => "Nenhuma versão da grade vigente em " . date("d/m/Y", strtotime($sale_date)) . ".", "rows" => []]);
+            return;
+        }
+        if ($resolved["status"] !== "ok") {
+            echo json_encode(["success" => true, "status" => "no_rule", "message" => "Nenhuma regra de comissão encontrada para esta operadora/produto nesta versão.", "rows" => []]);
+            return;
+        }
+
+        $rows = [];
+        foreach ($resolved["schedule"] as $item) {
+            $rows[] = [
+                "installment_no" => $item["installment_no"],
+                "label" => $item["installment_label"] ?: ($item["installment_no"] . "ª"),
+                "competence" => sprintf("%02d/%04d", $item["due_month"], $item["due_year"]),
+                "rate" => $item["commission_rate"],
+                "expected" => number_format((float) $item["expected_amount"], 2, ",", ".")
+            ];
+        }
+
+        echo json_encode([
+            "success" => true,
+            "status" => "ok",
+            "version_name" => $resolved["version"]->version_name ?? "",
+            "multiplier" => $resolved["multiplier"],
+            "message" => count($rows) . " parcela(s) prevista(s).",
+            "rows" => $rows
+        ]);
+    }
+
+    public function recalculate_commission()
+    {
+        if (!green_can($this->login_user, "green_crm_recalculate_commissions", true)) {
+            echo json_encode(["success" => false, "message" => "Sem permissão para recalcular comissões."]);
+            return;
+        }
+
+        $id = (int) $this->request->getPost("id");
+        $sale = $id ? $this->Green_sales_model->get_details(["id" => $id])->getRow() : null;
+        if (!$sale) {
+            echo json_encode(["success" => false, "message" => "Venda inválida."]);
+            return;
+        }
+
+        $grade_id = (int) $sale->commission_grade_id;
+        if (!$grade_id) {
+            echo json_encode(["success" => false, "message" => "Esta venda não tem grade de comissão definida."]);
+            return;
+        }
+
+        $result = green_generate_commission_for_sale($id, $grade_id, (int) $this->login_user->id);
+        green_audit("sale", $id, "commission_recalculated", null, $result, $this->login_user->id);
+
+        if ($result["status"] === "ok") {
+            echo json_encode(["success" => true, "message" => $result["count"] . " parcela(s) recalculada(s). Parcelas já recebidas foram preservadas."]);
+            return;
+        }
+        echo json_encode(["success" => true, "message" => "Recalculado, mas nenhuma regra compatível foi encontrada. Configure manualmente."]);
+    }
+
     public function convert_lead_to_sale()
     {
         $lead_id = (int) $this->request->getPost("lead_id");
@@ -370,6 +486,9 @@ class Green_sales extends Security_Controller
         $actions = modal_anchor(get_uri("green_crm/sale_modal_form"), "<i data-feather='edit' class='icon-16'></i>", ["class" => "btn btn-default btn-sm", "title" => "Editar venda", "data-post-id" => $data->id]);
         $actions .= modal_anchor(get_uri("green_crm/commission_generation_modal_form"), "<i data-feather='dollar-sign' class='icon-16'></i> Gerar comiss&otilde;es", ["class" => "btn btn-default btn-sm", "title" => "Gerar comissoes", "data-post-sale_id" => $data->id]);
         $actions .= anchor(get_uri("green_crm/commissions"), "<i data-feather='eye' class='icon-16'></i>", ["class" => "btn btn-default btn-sm", "title" => "Ver comissões"]);
+        if (!empty($data->commission_grade_id) && green_can($this->login_user, "green_crm_recalculate_commissions", true)) {
+            $actions .= js_anchor("<i data-feather='refresh-cw' class='icon-16'></i>", ["class" => "btn btn-default btn-sm green-recalculate-commission", "data-id" => $data->id, "title" => "Recalcular comissão (preserva recebidas)"]);
+        }
         if ($data->status !== "Cancelada") {
             $actions .= js_anchor("<i data-feather='x-circle' class='icon-16'></i>", ["class" => "btn btn-default btn-sm green-cancel-sale", "data-id" => $data->id, "title" => "Cancelar venda"]);
         }
@@ -503,6 +622,7 @@ class Green_sales extends Security_Controller
             "operators_dropdown" => $this->_to_dropdown($this->Green_operators_model->get_details()->getResult(), "name", true),
             "plans_dropdown" => $this->_plans_dropdown(),
             "consultants_dropdown" => $this->Users_model->get_dropdown_list_with_blank_option(["first_name", "last_name"], "-", ["status" => "active", "user_type" => "staff"]),
+            "commission_grades_dropdown" => $this->Green_commission_grades_model->get_dropdown(true),
             "current_user_id" => (int) $this->login_user->id
         ];
     }

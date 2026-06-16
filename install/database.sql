@@ -1354,7 +1354,7 @@ INSERT INTO `settings` (`setting_name`, `setting_value`, `type`, `deleted`) VALU
 ('default_due_date_after_billing_date', '14', 'app', '0'),
 ('default_permissions_for_non_primary_contact', 'projects', 'app', '0'),
 ('default_proposal_template', '1', 'app', '0'),
-('default_theme_color', 'F2F2F2', 'app', '0'),
+('default_theme_color', '2D4E23', 'app', '0'),
 ('email_sent_from_address', 'admin_email', 'app', '0'),
 ('email_sent_from_name', 'admin_first_name', 'app', '0'),
 ('enable_audio_recording', '1', 'app', '0'),

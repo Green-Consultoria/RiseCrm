@@ -64,7 +64,7 @@ class App extends BaseConfig {
      *
      * @var string
      */
-    public $baseURL = '';
+    public $baseURL = 'https://crm.greenconsultoria.com.br/';
     
     /**
      * Allowed Hostnames in the Site URL other than the hostname in the baseURL.
@@ -92,7 +92,7 @@ class App extends BaseConfig {
      * @var string
      */
     
-    public $indexPage = 'index.php';
+    public $indexPage = '';
 
     /**
      * --------------------------------------------------------------------------

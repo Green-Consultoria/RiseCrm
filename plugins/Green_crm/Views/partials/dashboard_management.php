@@ -96,6 +96,42 @@ $empty = function ($colspan, $message) {
     </div>
 
     <div class="col-lg-6">
+        <?php echo $panel_open("Comissões por parceiro/grade", "award"); ?>
+            <div class="table-responsive">
+                <table class="table table-hover mb0 green-crm-table">
+                    <thead><tr><th>Grade</th><th>Parceiro</th><th class="text-end">Prevista</th><th class="text-end">Recebida</th></tr></thead>
+                    <tbody>
+                        <?php if (empty($blocks["commission_by_partner"])): ?>
+                            <?php echo $empty(4, "Nenhuma comissao por parceiro."); ?>
+                        <?php endif; ?>
+                        <?php foreach (($blocks["commission_by_partner"] ?? []) as $row): ?>
+                            <tr><td data-green-label="Grade"><?php echo esc($row->label); ?></td><td data-green-label="Parceiro"><?php echo esc($row->partner_name ?: "-"); ?></td><td data-green-label="Prevista" class="text-end"><?php echo $money($row->expected_amount); ?></td><td data-green-label="Recebida" class="text-end"><?php echo $money($row->received_amount); ?></td></tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php echo $panel_close; ?>
+    </div>
+
+    <div class="col-lg-6">
+        <?php echo $panel_open("Comissões por operadora", "briefcase"); ?>
+            <div class="table-responsive">
+                <table class="table table-hover mb0 green-crm-table">
+                    <thead><tr><th>Operadora</th><th class="text-end">Prevista</th><th class="text-end">Recebida</th></tr></thead>
+                    <tbody>
+                        <?php if (empty($blocks["commission_by_operator"])): ?>
+                            <?php echo $empty(3, "Nenhuma comissao por operadora."); ?>
+                        <?php endif; ?>
+                        <?php foreach (($blocks["commission_by_operator"] ?? []) as $row): ?>
+                            <tr><td data-green-label="Operadora"><?php echo esc($row->label); ?></td><td data-green-label="Prevista" class="text-end"><?php echo $money($row->expected_amount); ?></td><td data-green-label="Recebida" class="text-end"><?php echo $money($row->received_amount); ?></td></tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php echo $panel_close; ?>
+    </div>
+
+    <div class="col-lg-6">
         <?php echo $panel_open("Implantações pendentes", "clipboard"); ?>
             <div class="table-responsive">
                 <table class="table table-hover mb0 green-crm-table">

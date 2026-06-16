@@ -52,6 +52,8 @@ $routes->group("green_crm", ["namespace" => "Green_crm\Controllers"], function (
     $routes->post("search_clients", "Green_sales::search_clients");
     $routes->post("save_sale", "Green_sales::save");
     $routes->post("cancel_sale", "Green_sales::cancel");
+    $routes->post("commission_preview", "Green_sales::commission_preview");
+    $routes->post("recalculate_commission", "Green_sales::recalculate_commission");
     $routes->post("convert_lead_to_sale", "Green_sales::convert_lead_to_sale");
     $routes->get("sale_implantation_checklist/(:num)", "Green_sales::sale_implantation_checklist/$1");
     $routes->post("update_implantation_item", "Green_sales::update_implantation_item");
@@ -77,6 +79,27 @@ $routes->group("green_crm", ["namespace" => "Green_crm\Controllers"], function (
     $routes->post("commission_payment_modal_form", "Green_commissions::payment_modal_form");
     $routes->post("save_commission_payment", "Green_commissions::save_payment");
     $routes->post("cancel_commission", "Green_commissions::cancel");
+    $routes->post("mark_as_reversed", "Green_commissions::mark_as_reversed");
+    $routes->post("create_commission_adjustment", "Green_commissions::create_adjustment");
+
+    // Grades de comissao (parceiros) + versionamento
+    $routes->get("commission_grades", "Green_commission_grades::index");
+    $routes->post("commission_grades_list_data", "Green_commission_grades::grades_list_data");
+    $routes->post("commission_grade_modal_form", "Green_commission_grades::commission_grade_modal_form");
+    $routes->post("save_commission_grade", "Green_commission_grades::save_grade");
+    $routes->post("inactivate_commission_grade", "Green_commission_grades::inactivate_grade");
+    $routes->get("commission_grade/(:num)", "Green_commission_grades::view/$1");
+    $routes->post("commission_versions_list_data", "Green_commission_grades::versions_list_data");
+    $routes->post("commission_version_modal_form", "Green_commission_grades::commission_version_modal_form");
+    $routes->post("save_commission_version", "Green_commission_grades::save_version");
+    $routes->post("duplicate_commission_version", "Green_commission_grades::duplicate_version");
+    $routes->post("inactivate_commission_version", "Green_commission_grades::inactivate_version");
+    $routes->get("commission_grade_version/(:num)", "Green_commission_grades::version/$1");
+    $routes->post("commission_rules_list_data", "Green_commission_grades::rules_list_data");
+    $routes->post("commission_rule_modal_form", "Green_commission_grades::commission_rule_modal_form");
+    $routes->post("save_commission_rule", "Green_commission_grades::save_rule");
+    $routes->post("delete_commission_rule", "Green_commission_grades::delete_rule");
+    $routes->post("inactivate_commission_rule", "Green_commission_grades::inactivate_rule");
 
     // Tarefas e lembretes (tela geral)
     $routes->get("tasks", "Green_tasks::index");

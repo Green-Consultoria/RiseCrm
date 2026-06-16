@@ -63,6 +63,8 @@ $selected_client = $client_info ? [
 <div class="modal-body clearfix">
     <div class="container-fluid">
         <input type="hidden" name="id" value="<?php echo (int) ($model_info->id ?? 0); ?>">
+        <input type="hidden" name="quote_id" value="<?php echo (int) ($model_info->quote_id ?? 0); ?>">
+        <input type="hidden" name="quote_option_id" value="<?php echo (int) ($model_info->quote_option_id ?? 0); ?>">
 
         <div class="form-group row">
             <label class="col-md-3">Buscar lead</label>
@@ -162,13 +164,30 @@ $selected_client = $client_info ? [
         </div>
 
         <div class="form-group row">
-            <label class="col-md-3">Multiplicador comissao total</label>
-            <div class="col-md-3">
-                <?php echo form_input(["name" => "total_commission_multiplier", "class" => "form-control", "placeholder" => "Ex.: 2,8"]); ?>
+            <label class="col-md-3">Grade de comissão</label>
+            <div class="col-md-6">
+                <?php echo form_dropdown("commission_grade_id", $commission_grades_dropdown ?? ["" => "-"], $model_info->commission_grade_id ?? "", ["id" => "green-sale-grade-id", "class" => "form-control select2"]); ?>
+                <small class="text-muted">Ao salvar, gera as parcelas previstas pela versão vigente na data da venda.</small>
             </div>
-            <label class="col-md-3">Bonus</label>
+            <div class="col-md-3">
+                <button type="button" class="btn btn-default w100p" id="green-commission-preview-btn" title="Ver previsão de comissão"><span data-feather="search" class="icon-16"></span> Prever comissão</button>
+            </div>
+        </div>
+
+        <div class="form-group row" id="green-commission-preview-wrap" style="display:none;">
+            <div class="col-md-9 offset-md-3">
+                <div class="alert alert-info mb0" id="green-commission-preview-box"></div>
+            </div>
+        </div>
+
+        <div class="form-group row">
+            <label class="col-md-3">Bônus manual</label>
             <div class="col-md-3">
                 <?php echo form_input(["name" => "bonus_amount", "class" => "form-control", "placeholder" => "R$ 0,00"]); ?>
+            </div>
+            <label class="col-md-3">Multiplicador manual</label>
+            <div class="col-md-3">
+                <?php echo form_input(["name" => "total_commission_multiplier", "class" => "form-control", "placeholder" => "Use só sem grade"]); ?>
             </div>
         </div>
 
@@ -308,6 +327,45 @@ $(document).ready(function () {
     }
 
     $("#green-use-lead-data").on("click", applyLeadData);
+
+    var renderCommissionPreview = function () {
+        var gradeId = $("#green-sale-grade-id").val();
+        var $wrap = $("#green-commission-preview-wrap");
+        var $box = $("#green-commission-preview-box");
+        if (!gradeId) {
+            $wrap.hide();
+            return;
+        }
+
+        appAjaxRequest({
+            url: "<?php echo get_uri("green_crm/commission_preview"); ?>",
+            type: "POST",
+            dataType: "json",
+            data: {
+                commission_grade_id: gradeId,
+                sale_value: $("#green-sale-value").val(),
+                sale_date: $("[name='sale_date']").val(),
+                operator_id: $("#green-sale-operator-id").val(),
+                plan_id: $("#green-sale-plan-id").val()
+            },
+            success: function (r) {
+                $wrap.show();
+                if (!r.success || r.status !== "ok") {
+                    $box.removeClass("alert-success").addClass("alert-warning").text(r.message || "Sem previsão.");
+                    return;
+                }
+                var html = "<strong>Versão:</strong> " + r.version_name + " &middot; <strong>Total:</strong> " + r.multiplier + "<ul class='mb0 mt5'>";
+                r.rows.forEach(function (row) {
+                    html += "<li>" + row.label + " (" + row.competence + "): " + row.rate + " &rarr; R$ " + row.expected + "</li>";
+                });
+                html += "</ul>";
+                $box.removeClass("alert-warning").addClass("alert-success").html(html);
+            }
+        });
+    };
+
+    $("#green-commission-preview-btn").on("click", renderCommissionPreview);
+    $("#green-sale-grade-id").on("change", renderCommissionPreview);
 
     $("#green-sale-form").appForm({
         onSuccess: function () {

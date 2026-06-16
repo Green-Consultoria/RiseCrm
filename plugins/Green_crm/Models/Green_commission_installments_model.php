@@ -190,9 +190,9 @@ class Green_commission_installments_model extends Green_base_model
 
         return $this->db->query("SELECT
             COALESCE(SUM(CASE WHEN $items.status NOT IN ('Cancelado','Estornado') THEN $items.expected_amount ELSE 0 END),0) AS expected_amount_total,
-            COALESCE(SUM(CASE WHEN $items.status IN ('Recebido','Parcial') THEN $items.received_amount ELSE 0 END),0) AS received_amount_total,
-            COALESCE(SUM(CASE WHEN $items.status NOT IN ('Recebido','Cancelado','Estornado') THEN $items.expected_amount - COALESCE($items.received_amount,0) ELSE 0 END),0) AS open_amount_total,
-            COALESCE(SUM(CASE WHEN $items.due_date < CURDATE() AND $items.status NOT IN ('Recebido','Cancelado','Estornado') THEN $items.expected_amount - COALESCE($items.received_amount,0) ELSE 0 END),0) AS overdue_amount_total,
+            COALESCE(SUM(CASE WHEN $items.status IN ('Recebido','Parcial','Divergente') THEN $items.received_amount ELSE 0 END),0) AS received_amount_total,
+            COALESCE(SUM(CASE WHEN $items.status NOT IN ('Recebido','Cancelado','Estornado','Divergente') THEN $items.expected_amount - COALESCE($items.received_amount,0) ELSE 0 END),0) AS open_amount_total,
+            COALESCE(SUM(CASE WHEN $items.due_date < CURDATE() AND $items.status NOT IN ('Recebido','Cancelado','Estornado','Divergente') THEN $items.expected_amount - COALESCE($items.received_amount,0) ELSE 0 END),0) AS overdue_amount_total,
             COALESCE(SUM(CASE WHEN $items.status NOT IN ('Cancelado','Estornado') THEN COALESCE($items.received_amount,0) - COALESCE($items.expected_amount,0) ELSE 0 END),0) AS difference_amount_total,
             COALESCE(SUM(CASE WHEN $items.commission_type='bonus' AND $items.status NOT IN ('Cancelado','Estornado') THEN $items.expected_amount ELSE 0 END),0) AS bonus_expected_total,
             COALESCE(SUM(CASE WHEN $items.commission_type='estorno' AND $items.status NOT IN ('Cancelado') THEN $items.expected_amount ELSE 0 END),0) AS reversal_amount_total
@@ -328,7 +328,9 @@ class Green_commission_installments_model extends Green_base_model
             $year = (int) ($item["due_year"] ?? date("Y"));
             $installment_data = [
                 "sale_id" => $sale_id,
+                "commission_rule_id" => isset($item["commission_rule_id"]) && $item["commission_rule_id"] ? (int) $item["commission_rule_id"] : null,
                 "installment_no" => (int) ($item["installment_no"] ?? ($index + 1)),
+                "installment_label" => isset($item["installment_label"]) && $item["installment_label"] !== "" ? $item["installment_label"] : null,
                 "commission_type" => $type,
                 "due_month" => $month,
                 "due_year" => $year,
@@ -362,7 +364,14 @@ class Green_commission_installments_model extends Green_base_model
         $total_received = (float) $row->received_amount + (float) $received_amount;
         $expected = (float) $row->expected_amount;
 
-        $status = ($expected > 0 && $total_received >= $expected) ? "Recebido" : "Parcial";
+        if ($expected > 0 && abs($total_received - $expected) <= 0.01) {
+            $status = "Recebido";
+        } elseif ($total_received > $expected + 0.01) {
+            // Recebeu mais que o previsto: divergencia financeira para conferencia.
+            $status = "Divergente";
+        } else {
+            $status = "Parcial";
+        }
         $data = [
             "received_amount" => $total_received,
             "paid_at" => $paid_at,
@@ -379,6 +388,114 @@ class Green_commission_installments_model extends Green_base_model
     {
         $data = ["status" => "Cancelado", "notes" => $notes];
         return $this->ci_save($data, $id);
+    }
+
+    public function mark_as_reversed($id, $notes, $user_id = 0)
+    {
+        $row = $this->get_one($id);
+        if (!$row || !$row->id) {
+            return false;
+        }
+
+        $data = [
+            "status" => "Estornado",
+            "notes" => $notes,
+            "updated_by" => (int) $user_id ?: null,
+            "updated_at" => date("Y-m-d H:i:s")
+        ];
+        return $this->ci_save($data, $id);
+    }
+
+    /**
+     * Cria uma parcela de ajuste manual (positivo ou negativo) vinculada a uma venda,
+     * com justificativa obrigatoria registrada nas observacoes.
+     */
+    public function create_adjustment($sale_id, $amount, $due_month, $due_year, $notes, $user_id = 0)
+    {
+        $sales = $this->db->prefixTable("green_sales");
+        $sale = $this->db->query("SELECT * FROM $sales WHERE id=" . (int) $sale_id . " AND deleted=0")->getRow();
+        if (!$sale) {
+            return false;
+        }
+
+        $month = (int) ($due_month ?: date("m"));
+        $year = (int) ($due_year ?: date("Y"));
+        $next_no = $this->_next_installment_no($sale_id);
+
+        return $this->ci_save([
+            "sale_id" => (int) $sale_id,
+            "installment_no" => $next_no,
+            "installment_label" => "Ajuste manual",
+            "commission_type" => "ajuste",
+            "due_month" => $month,
+            "due_year" => $year,
+            "due_date" => sprintf("%04d-%02d-10", $year, $month),
+            "base_amount" => $sale->sale_value,
+            "commission_rate" => null,
+            "expected_amount" => (float) $amount,
+            "status" => "Previsto",
+            "notes" => $notes,
+            "created_by" => (int) $user_id ?: null,
+            "updated_by" => (int) $user_id ?: null,
+            "deleted" => 0
+        ]);
+    }
+
+    private function _next_installment_no($sale_id)
+    {
+        $table = $this->_green_table();
+        $row = $this->db->query("SELECT COALESCE(MAX(installment_no),0) AS last_no
+            FROM $table WHERE sale_id=" . (int) $sale_id . " AND deleted=0")->getRow();
+        return (int) ($row->last_no ?? 0) + 1;
+    }
+
+    /**
+     * Totais de comissao agrupados por grade/parceiro (dashboard financeiro).
+     */
+    public function get_totals_by_partner($options = [])
+    {
+        $items = $this->db->prefixTable("green_commission_installments");
+        $sales = $this->db->prefixTable("green_sales");
+        $grades = $this->db->prefixTable("green_commission_grades");
+        if (!$this->db->tableExists($items) || !$this->db->tableExists($grades)) {
+            return [];
+        }
+
+        return $this->db->query("SELECT
+                COALESCE($grades.name, 'Sem grade') AS label,
+                COALESCE($grades.partner_name, '') AS partner_name,
+                COALESCE(SUM(CASE WHEN $items.status NOT IN ('Cancelado','Estornado') THEN $items.expected_amount ELSE 0 END),0) AS expected_amount,
+                COALESCE(SUM(CASE WHEN $items.status IN ('Recebido','Parcial','Divergente') THEN $items.received_amount ELSE 0 END),0) AS received_amount
+            FROM $items
+            INNER JOIN $sales ON $sales.id=$items.sale_id AND $sales.deleted=0
+            LEFT JOIN $grades ON $grades.id=$sales.commission_grade_id
+            WHERE $items.deleted=0
+            GROUP BY COALESCE($grades.name, 'Sem grade'), COALESCE($grades.partner_name, '')
+            ORDER BY expected_amount DESC")->getResult();
+    }
+
+    /**
+     * Totais de comissao agrupados por operadora (dashboard financeiro).
+     */
+    public function get_totals_by_operator($options = [])
+    {
+        $items = $this->db->prefixTable("green_commission_installments");
+        $sales = $this->db->prefixTable("green_sales");
+        $operators = $this->db->prefixTable("green_operators");
+        if (!$this->db->tableExists($items)) {
+            return [];
+        }
+
+        return $this->db->query("SELECT
+                COALESCE($operators.name, 'Sem operadora') AS label,
+                COALESCE(SUM(CASE WHEN $items.status NOT IN ('Cancelado','Estornado') THEN $items.expected_amount ELSE 0 END),0) AS expected_amount,
+                COALESCE(SUM(CASE WHEN $items.status IN ('Recebido','Parcial','Divergente') THEN $items.received_amount ELSE 0 END),0) AS received_amount
+            FROM $items
+            INNER JOIN $sales ON $sales.id=$items.sale_id AND $sales.deleted=0
+            LEFT JOIN $operators ON $operators.id=$sales.operator_id
+            WHERE $items.deleted=0
+            GROUP BY COALESCE($operators.name, 'Sem operadora')
+            ORDER BY expected_amount DESC")->getResult();
     }
 
     private function _valid_type($type)

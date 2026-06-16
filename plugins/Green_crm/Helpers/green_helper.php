@@ -259,6 +259,132 @@ if (!function_exists("green_log_changes")) {
     }
 }
 
+if (!function_exists("green_commission_resolve")) {
+    /**
+     * Resolve a versao vigente + regra compativel de uma grade para uma venda,
+     * sem persistir nada. Usado no preview e na geracao.
+     *
+     * @return array{status:string, version:?object, rule:?object, schedule:array, multiplier:?float}
+     */
+    function green_commission_resolve($grade_id, $sale_value, $sale_date, $operator_id, $operator_name, $product_type, $plan_id, $lives_qty = null)
+    {
+        $result = ["status" => "no_grade", "version" => null, "rule" => null, "schedule" => [], "multiplier" => null];
+        $grade_id = (int) $grade_id;
+        if (!$grade_id) {
+            return $result;
+        }
+
+        $versions_model = model("Green_crm\Models\Green_commission_grade_versions_model");
+        $version = $versions_model->get_active_version_for_date($grade_id, $sale_date ?: date("Y-m-d"));
+        if (!$version) {
+            $result["status"] = "no_version";
+            return $result;
+        }
+        $result["version"] = $version;
+
+        $rules_model = model("Green_crm\Models\Green_commission_rules_model");
+        $rule = $rules_model->find_matching_rule($version->id, $operator_id, $operator_name, $product_type, $plan_id, $lives_qty);
+        if (!$rule) {
+            $result["status"] = "no_rule";
+            return $result;
+        }
+
+        $schedule = $rules_model->build_schedule_from_rule($rule, $sale_value, $sale_date ?: date("Y-m-d"));
+        if (!count($schedule)) {
+            $result["status"] = "no_rule";
+            $result["rule"] = $rule;
+            return $result;
+        }
+
+        $rule_inst_model = model("Green_crm\Models\Green_commission_rule_installments_model");
+        $multiplier = $rule->total_multiplier !== null && $rule->total_multiplier !== ""
+            ? (float) $rule->total_multiplier
+            : $rule_inst_model->total_multiplier_for_rule($rule->id);
+
+        $result["status"] = "ok";
+        $result["rule"] = $rule;
+        $result["schedule"] = $schedule;
+        $result["multiplier"] = $multiplier;
+        return $result;
+    }
+}
+
+if (!function_exists("green_generate_commission_for_sale")) {
+    /**
+     * Gera as parcelas previstas de comissao de uma venda a partir da grade selecionada,
+     * congelando a versao usada. Nao bloqueia a venda quando nao ha regra compativel.
+     *
+     * @return array{status:string, count:int, multiplier:?float, version_id:?int, rule_id:?int}
+     */
+    function green_generate_commission_for_sale($sale_id, $grade_id, $user_id = 0)
+    {
+        $sales_model = model("Green_crm\Models\Green_sales_model");
+        $sale = $sales_model->get_details(["id" => (int) $sale_id])->getRow();
+        if (!$sale) {
+            return ["status" => "no_sale", "count" => 0, "multiplier" => null, "version_id" => null, "rule_id" => null];
+        }
+
+        $grade_id = (int) $grade_id;
+        if (!$grade_id) {
+            return ["status" => "no_grade", "count" => 0, "multiplier" => null, "version_id" => null, "rule_id" => null];
+        }
+
+        $product_type = null;
+        if (!empty($sale->plan_id)) {
+            $plan = model("Green_crm\Models\Green_plans_model")->get_one((int) $sale->plan_id);
+            $product_type = $plan->product_type ?? null;
+        }
+
+        $resolved = green_commission_resolve(
+            $grade_id,
+            (float) $sale->sale_value,
+            $sale->sale_date,
+            (int) $sale->operator_id,
+            $sale->operator_name ?? null,
+            $product_type,
+            (int) $sale->plan_id,
+            $sale->lives_qty ?? null
+        );
+
+        $now = date("Y-m-d H:i:s");
+        $version_id = $resolved["version"]->id ?? null;
+        $rule_id = $resolved["rule"]->id ?? null;
+
+        if ($resolved["status"] !== "ok") {
+            $sales_model->ci_save([
+                "commission_grade_id" => $grade_id,
+                "commission_grade_version_id" => $version_id,
+                "commission_status" => "comissao_nao_configurada",
+                "updated_by" => (int) $user_id ?: null,
+                "updated_at" => $now
+            ], (int) $sale_id);
+            return ["status" => $resolved["status"], "count" => 0, "multiplier" => null, "version_id" => $version_id, "rule_id" => $rule_id];
+        }
+
+        $installments_model = model("Green_crm\Models\Green_commission_installments_model");
+        $count = $installments_model->generate_for_sale((int) $sale_id, $resolved["schedule"], (int) $user_id);
+
+        $sales_model->ci_save([
+            "commission_grade_id" => $grade_id,
+            "commission_grade_version_id" => $version_id,
+            "total_commission_multiplier" => $resolved["multiplier"],
+            "commission_status" => "comissao_gerada",
+            "updated_by" => (int) $user_id ?: null,
+            "updated_at" => $now
+        ], (int) $sale_id);
+
+        green_audit("sale", (int) $sale_id, "commission_generated_from_grade", null, [
+            "grade_id" => $grade_id,
+            "grade_version_id" => $version_id,
+            "rule_id" => $rule_id,
+            "multiplier" => $resolved["multiplier"],
+            "installments" => $count
+        ], $user_id);
+
+        return ["status" => "ok", "count" => (int) $count, "multiplier" => $resolved["multiplier"], "version_id" => $version_id, "rule_id" => $rule_id];
+    }
+}
+
 if (!function_exists("green_can")) {
     /**
      * Checa permissao do plugin no padrao do Rise.

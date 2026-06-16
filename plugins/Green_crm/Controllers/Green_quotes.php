@@ -104,10 +104,14 @@ class Green_quotes extends Security_Controller
     {
         $this->validate_submitted_data(["lead_id" => "required|numeric"]);
         $id = (int) $this->request->getPost("id");
+        $lead_id = (int) $this->request->getPost("lead_id");
+        $lead = $lead_id ? $this->Green_leads_model->get_details(["id" => $lead_id])->getRow() : null;
         $quote_data = [
-            "lead_id" => (int) $this->request->getPost("lead_id"),
+            "lead_id" => $lead_id,
+            "client_id" => $lead && $lead->client_id ? (int) $lead->client_id : null,
             "status" => $this->request->getPost("status") ?: "Rascunho",
             "valid_until" => green_date_value($this->request->getPost("valid_until")),
+            "notes" => trim((string) $this->request->getPost("notes")) ?: null,
             "updated_by" => $this->login_user->id
         ];
         $save_id = $this->Green_quotes_model->ci_save($quote_data, $id);
@@ -231,6 +235,8 @@ class Green_quotes extends Security_Controller
         $now = date("Y-m-d H:i:s");
         $sale_data = [
             "lead_id" => (int) $quote->lead_id,
+            "quote_id" => (int) $quote->id,
+            "quote_option_id" => (int) $option->id,
             "client_id" => (int) $lead->client_id,
             "operator_id" => (int) $option->operator_id ?: null,
             "plan_id" => (int) $option->plan_id ?: null,
@@ -253,8 +259,9 @@ class Green_quotes extends Security_Controller
         $this->Green_sale_implantation_checklist_model->ensure_default_items($sale_id, $user_id);
         $this->_mark_lead_as_sold((int) $quote->lead_id, $user_id);
         $this->Green_interactions_model->add_system_interaction((int) $quote->lead_id, "Venda criada", "Lead convertido em venda.", $user_id);
+        green_audit("quote", (int) $quote->id, "quote_converted_to_sale", null, ["sale_id" => $sale_id, "quote_option_id" => (int) $option->id], $user_id);
 
-        echo json_encode(["success" => true, "id" => $sale_id, "message" => "Venda criada a partir da opcao selecionada."]);
+        echo json_encode(["success" => true, "id" => $sale_id, "message" => "Venda criada a partir da opcao selecionada. Abra a venda para selecionar a grade e gerar a comissão."]);
     }
 
     private function _save_option_from_post($quote_id)
@@ -281,6 +288,7 @@ class Green_quotes extends Security_Controller
             "operator_id" => $operator_id,
             "plan_id" => $plan_id,
             "plan_name" => $plan_name ?: null,
+            "product_type" => trim((string) $this->request->getPost("product_type")) ?: ($plan->product_type ?? null),
             "monthly_value" => $monthly_value,
             "lives_qty" => (int) $this->request->getPost("lives_qty") ?: null,
             "accommodation" => trim((string) $this->request->getPost("accommodation")) ?: ($plan->accommodation ?? null),
@@ -290,6 +298,7 @@ class Green_quotes extends Security_Controller
             "hospital_match" => (int) $this->request->getPost("hospital_match") ? 1 : 0,
             "highlight_label" => trim((string) $this->request->getPost("highlight_label")) ?: null,
             "network_notes" => trim((string) $this->request->getPost("network_notes")) ?: null,
+            "preferred_hospital_notes" => trim((string) $this->request->getPost("preferred_hospital_notes")) ?: null,
             "pros" => trim((string) $this->request->getPost("pros")) ?: null,
             "cons" => trim((string) $this->request->getPost("cons")) ?: null,
             "updated_by" => (int) $this->login_user->id,

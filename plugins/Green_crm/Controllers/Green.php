@@ -112,6 +112,8 @@ class Green extends Security_Controller
             "leads_by_source" => $this->Green_leads_model->get_leads_by_source($filters),
             "sales_by_operator" => $this->Green_sales_model->get_sales_by_operator($filters),
             "commission_by_competence" => $this->Green_commission_installments_model->get_commission_by_competence($filters),
+            "commission_by_partner" => $this->Green_commission_installments_model->get_totals_by_partner($filters),
+            "commission_by_operator" => $this->Green_commission_installments_model->get_totals_by_operator($filters),
             "pending_implantations" => $this->Green_sales_model->get_pending_implantations($filters, 8),
             "upcoming_renewals" => array_slice($this->Green_leads_model->get_renewal_rows(array_merge($filters, ["fidelity_days" => 90]))->getResult(), 0, 8),
             "overdue_tasks" => $this->Green_tasks_model->get_overdue_dashboard($filters, 8)

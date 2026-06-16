@@ -150,12 +150,64 @@ class Green_commissions extends Security_Controller
         echo json_encode(["success" => true, "message" => "Comissao cancelada."]);
     }
 
+    public function mark_as_reversed()
+    {
+        $id = (int) $this->request->getPost("id");
+        $notes = trim((string) $this->request->getPost("notes"));
+        if (!$notes) {
+            echo json_encode(["success" => false, "message" => "Informe a justificativa do estorno."]);
+            return;
+        }
+
+        $old_row = $this->Green_commission_installments_model->get_details(["id" => $id])->getRow();
+        if (!$this->Green_commission_installments_model->mark_as_reversed($id, $notes, (int) $this->login_user->id)) {
+            echo json_encode(["success" => false, "message" => "Parcela inválida."]);
+            return;
+        }
+        $new_row = $this->Green_commission_installments_model->get_details(["id" => $id])->getRow();
+        green_audit("commission", $id, "commission_reversed", $old_row, $new_row, $this->login_user->id);
+        echo json_encode(["success" => true, "message" => "Comissão estornada."]);
+    }
+
+    public function create_adjustment()
+    {
+        $sale_id = (int) $this->request->getPost("sale_id");
+        $amount = green_money_to_float($this->request->getPost("amount"));
+        $notes = trim((string) $this->request->getPost("notes"));
+        if (!$sale_id || $amount === null) {
+            echo json_encode(["success" => false, "message" => "Informe a venda e o valor do ajuste."]);
+            return;
+        }
+        if (!$notes) {
+            echo json_encode(["success" => false, "message" => "A justificativa do ajuste é obrigatória."]);
+            return;
+        }
+
+        $new_id = $this->Green_commission_installments_model->create_adjustment(
+            $sale_id,
+            $amount,
+            (int) $this->request->getPost("due_month"),
+            (int) $this->request->getPost("due_year"),
+            $notes,
+            (int) $this->login_user->id
+        );
+        if (!$new_id) {
+            echo json_encode(["success" => false, "message" => "Não foi possível criar o ajuste."]);
+            return;
+        }
+        green_audit("commission", $new_id, "commission_adjustment_created", null, ["sale_id" => $sale_id, "amount" => $amount, "notes" => $notes], $this->login_user->id);
+        echo json_encode(["success" => true, "message" => "Ajuste manual registrado."]);
+    }
+
     private function _commission_row($data)
     {
         $actions = modal_anchor(get_uri("green_crm/sale_modal_form"), "<i data-feather='eye' class='icon-16'></i>", ["class" => "btn btn-default btn-sm", "title" => "Ver venda", "data-post-id" => $data->sale_id]);
         if (!in_array($data->status, ["Recebido", "Cancelado", "Estornado"], true)) {
             $actions .= modal_anchor(get_uri("green_crm/commission_payment_modal_form"), "<i data-feather='check-circle' class='icon-16'></i>", ["class" => "btn btn-default btn-sm", "title" => "Dar baixa", "data-post-id" => $data->id])
                 . js_anchor("<i data-feather='x-circle' class='icon-16'></i>", ["class" => "btn btn-default btn-sm green-cancel-commission", "data-id" => $data->id, "title" => "Cancelar"]);
+        }
+        if (in_array($data->status, ["Recebido", "Parcial", "Divergente"], true)) {
+            $actions .= js_anchor("<i data-feather='rotate-ccw' class='icon-16'></i>", ["class" => "btn btn-default btn-sm green-reverse-commission", "data-id" => $data->id, "title" => "Estornar"]);
         }
 
         return [
@@ -186,7 +238,8 @@ class Green_commissions extends Security_Controller
             "Recebido" => "bg-success",
             "Parcial" => "bg-info",
             "Cancelado" => "bg-danger",
-            "Estornado" => "bg-danger"
+            "Estornado" => "bg-danger",
+            "Divergente" => "bg-warning"
         ];
         $class = $classes[$status] ?? "bg-secondary";
 

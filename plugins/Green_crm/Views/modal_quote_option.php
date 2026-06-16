@@ -41,6 +41,13 @@ $format_money = function ($value) {
         </div>
 
         <div class="form-group row">
+            <label class="col-md-2">Tipo de produto</label>
+            <div class="col-md-4">
+                <?php echo form_input(["name" => "product_type", "value" => $model_info->product_type ?? "", "class" => "form-control", "placeholder" => "Ex.: Saúde, Odonto, PME"]); ?>
+            </div>
+        </div>
+
+        <div class="form-group row">
             <label class="col-md-2">Acomodação</label>
             <div class="col-md-4">
                 <?php echo form_input(["name" => "accommodation", "value" => $model_info->accommodation ?? ($model_info->plan_accommodation ?? ""), "class" => "form-control", "placeholder" => "Ex.: Enfermaria, Apartamento"]); ?>
@@ -68,6 +75,13 @@ $format_money = function ($value) {
             <label class="col-md-3">Rede/hospitais</label>
             <div class="col-md-9">
                 <?php echo form_textarea(["name" => "network_notes", "value" => $model_info->network_notes ?? "", "class" => "form-control", "rows" => 3]); ?>
+            </div>
+        </div>
+
+        <div class="form-group row">
+            <label class="col-md-3">Hospital de preferência</label>
+            <div class="col-md-9">
+                <?php echo form_textarea(["name" => "preferred_hospital_notes", "value" => $model_info->preferred_hospital_notes ?? "", "class" => "form-control", "rows" => 2, "placeholder" => "Hospitais/rede de preferência do cliente"]); ?>
             </div>
         </div>
 
